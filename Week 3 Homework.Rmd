@@ -1,0 +1,70 @@
+---
+title: "Week 3 Homework"
+author: "Patrick"
+date: "6/29/2021"
+output: html_document
+---
+
+### description: From data.gov: "List of every shooting incident that occurred in NYC going back to 2006 through the end of the previous calendar year. This is a breakdown of every shooting incident that occurred in NYC..."
+### data: https://catalog.data.gov/dataset/nypd-shooting-incident-data-historic
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r libraries}
+library(tidyverse)
+library(lubridate)
+```
+
+
+```{r read}
+url <- read_csv("https://data.cityofnewyork.us/api/views/833y-fsy8/rows.csv?accessType=DOWNLOAD")
+```
+
+```{r tidy}
+url <- mutate(url,OCCUR_DATE = mdy(OCCUR_DATE))
+nyc_inc <- url %>% select(-c(X_COORD_CD,Y_COORD_CD, Latitude, Longitude, Lon_Lat))
+nyc_inc$MURDER_COUNT = ifelse(nyc_inc$STATISTICAL_MURDER_FLAG %in% c("TRUE"),1,0)
+nyc_inc$INCIDENT_COUNT = ifelse(nyc_inc$STATISTICAL_MURDER_FLAG %in% c("TRUE","FALSE"),1,0)
+summary(nyc_inc)
+```
+
+### First, I found that looking back at incidents from many years ago is not beneficial, if I were an analyst for the police department.  So in the 1st visual I found that there was a spike in incidents and murders in 2020.
+
+### In the 2nd visual, I see that there are a lot more incidents and murders in the Bronx and Brooklyn.
+
+### In the 3rd visual, I have the incidents and murders aggregated by precinct in case the chief of police would like to use this data to assign the right amount of resources.
+
+```{r visualizations}
+nyc_inc_by_date <- nyc_inc %>% group_by(OCCUR_DATE) %>% summarize (INCIDENT_COUNT = sum(INCIDENT_COUNT), MURDER_COUNT = sum(MURDER_COUNT)) %>% select(OCCUR_DATE, INCIDENT_COUNT, MURDER_COUNT) %>% ungroup()
+
+nyc_inc_by_date %>% filter(OCCUR_DATE >= as.Date("2018-01-01")) %>% ggplot(aes(x = OCCUR_DATE, y= INCIDENT_COUNT)) + geom_line(aes(color = "incident_count")) + geom_point(aes(color = "incident_count")) + geom_line(aes(y = MURDER_COUNT, color = "murder_count")) + geom_point(aes(y= MURDER_COUNT, color = "murder_count")) + scale_y_log10() + theme(legend.position = "bottom", axis.text.x = element_text(angle = 90)) + labs(title = "NYC Murder and Incident Count from 2018 to 2020", y = NULL)
+
+nyc_inc_by_boro <- nyc_inc %>% filter(OCCUR_DATE >= as.Date("2020-01-01")) %>% group_by(BORO) %>% summarize (INCIDENT_COUNT = sum(INCIDENT_COUNT), MURDER_COUNT = sum(MURDER_COUNT)) %>% select(BORO, INCIDENT_COUNT, MURDER_COUNT) %>% ungroup()
+
+nyc_inc_by_boro %>% ggplot(aes(x = BORO, y= INCIDENT_COUNT)) + geom_line(aes(color = "incident_count")) + geom_point(aes(color = "incident_count")) + geom_line(aes(y = MURDER_COUNT, color = "murder_count")) + geom_point(aes(y= MURDER_COUNT, color = "murder_count")) + scale_y_log10() + theme(legend.position = "bottom", axis.text.x = element_text(angle = 90)) + labs(title = "2020 NYC Murder and Incident Count by Boro", y = NULL)
+
+nyc_inc_by_prec <- nyc_inc %>% filter(OCCUR_DATE >= as.Date("2020-01-01")) %>% group_by(PRECINCT) %>% summarize (INCIDENT_COUNT = sum(INCIDENT_COUNT), MURDER_COUNT = sum(MURDER_COUNT)) %>% select(PRECINCT, INCIDENT_COUNT, MURDER_COUNT) %>% ungroup()
+
+nyc_inc_by_prec %>% ggplot(aes(x = PRECINCT, y= INCIDENT_COUNT)) + geom_line(aes(color = "incident_count")) + geom_point(aes(color = "incident_count")) + geom_line(aes(y = MURDER_COUNT, color = "murder_count")) + geom_point(aes(y= MURDER_COUNT, color = "murder_count")) + scale_y_log10() + theme(legend.position = "bottom", axis.text.x = element_text(angle = 90)) + labs(title = "2020 NYC Murder and Incident Count by Precinct", y = NULL)
+
+```
+
+### In the model below, at the precinct level, you can see that there is a strong correlation between incidents and murders.
+
+```{r model}
+mod <- lm(MURDER_COUNT ~ INCIDENT_COUNT, data = nyc_inc_by_prec)
+summary(mod)
+nyc_inc_by_prec %>% mutate(pred = predict(mod))
+nyc_inc_w_pred <- nyc_inc_by_prec %>% mutate(pred = predict(mod))
+nyc_inc_w_pred %>% ggplot() + geom_point(aes(x = INCIDENT_COUNT, y = MURDER_COUNT), color = "blue") + geom_point(aes(x = INCIDENT_COUNT, y = pred), color = "red")
+```
+
+### In conclusion, because of the spike in shooting incidents and murders in 2020, I suggest the chief of police look at allocating the appropriate amount of resources in the precincts in the below table.  Finally, when it comes to bias, I decided not to look at age and race of the perpetrator.  Also, the data for age and race were not consistent and in some cases was missing.
+
+```{r final visualization}
+data <- nyc_inc_by_prec[order(nyc_inc_by_prec[,"INCIDENT_COUNT"],decreasing = TRUE),]
+data
+```
+
